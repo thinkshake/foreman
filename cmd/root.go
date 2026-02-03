@@ -9,13 +9,13 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "foreman",
-	Short: "🏗️  foreman — AI-native project management CLI",
-	Long: `foreman is a file-based project management tool for AI assistants.
+	Short: "🏗️  foreman v2 — AI-native project management CLI",
+	Long: `foreman v2 is a structured project workflow management tool for AI assistants.
 
-It handles PM/EM responsibilities: requirements gathering, planning,
-high-level design, task breakdown into lanes, and progress tracking.
+It enforces a staged development workflow: requirements → design → phases → implementation.
+Each stage has gates that validate completion before advancing to the next stage.
 
-Lanes are self-contained work units that get handed off to coding agents
+Phases are self-contained implementation units that get handed off to coding agents
 via compiled briefs containing all the context needed for independent execution.`,
 }
 
