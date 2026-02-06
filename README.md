@@ -1,16 +1,15 @@
-# 🏗️ foreman
+# 🏗️ foreman v3
 
 **AI-native project management CLI for planning and preparing coding agent work.**
 
-foreman is a file-based project management tool designed for AI assistants. It handles PM/EM responsibilities — requirements gathering, planning, high-level design, task breakdown into lanes, and progress tracking — to prepare work that coding agents can execute independently.
+foreman is a file-based project management tool designed for AI assistants. It handles PM/EM responsibilities — requirements gathering, planning, high-level design, task breakdown into phases, and progress tracking — to prepare work that coding agents can execute independently.
 
-## Who is this for?
+## What's New in v3
 
-foreman is built for AI assistants (like those running on [OpenClaw](https://github.com/nichochar/openclaw)) that manage software projects. It bridges the gap between **planning** and **execution** by:
-
-1. Structuring project knowledge (requirements, design, constraints)
-2. Breaking work into **lanes** — self-contained workstreams
-3. Generating **briefs** — compiled documents with all the context a coding agent needs
+- **Quick Mode** — `foreman quick "<task>"` skips design/phases for rapid builds
+- **Workflow Presets** — `--preset nightly` or `--preset product` for common patterns
+- **Auto-Advance Gates** — Confidence-based automatic gate approval
+- **Progress Watching** — `foreman watch` for real-time progress monitoring
 
 ## Installation
 
@@ -26,205 +25,218 @@ cd foreman
 go build -o foreman .
 ```
 
-## Quick Start
+## Two Modes
+
+### Quick Mode (v3)
+
+For scripts, quick fixes, and nightly builds — skip the ceremony:
 
 ```bash
-# Initialize a project
-foreman init --name my-project
+# Initialize and generate brief in one command
+foreman quick "build a CLI that fetches weather data" --brief
 
-# Set requirements
-cat <<'EOF' | foreman req set
-Build a REST API for managing tasks with:
-- User authentication
-- CRUD operations for tasks
-- Real-time notifications via WebSocket
-EOF
-
-# Define the plan
-cat <<'EOF' | foreman plan set
-# Plan
-
-## Goals
-- Ship MVP in 2 weeks
-- Support 1000 concurrent users
-
-## Approach
-- Go backend with chi router
-- PostgreSQL for storage
-- Redis for pub/sub
-EOF
-
-# Document design decisions
-cat <<'EOF' | foreman design set
-# Architecture
-
-## Overview
-Clean architecture with 3 layers:
-- HTTP handlers (cmd/api)
-- Business logic (internal/service)
-- Data access (internal/repo)
-
-## Database
-PostgreSQL with migrations via golang-migrate.
-EOF
-
-# Break work into lanes
-foreman lane add setup --summary "Project scaffolding, CI/CD, and dev tooling"
-foreman lane add auth --summary "Authentication and authorization layer" --after setup
-foreman lane add core-api --summary "CRUD endpoints for tasks" --after setup
-foreman lane add realtime --summary "WebSocket notifications" --after core-api
-foreman lane add deploy --summary "Production deployment and monitoring" --after core-api,auth
-
-# Update lane statuses as work progresses
-foreman lane status setup done
-foreman lane status auth in-progress
-
-# Check progress
-foreman progress
-
-# Generate a brief for a coding agent
-foreman lane brief auth
+# Or step by step:
+foreman quick "build a weather CLI"
+# Review .foreman/requirements.md
+foreman gate requirements
+foreman brief impl
 ```
+
+Quick mode uses a streamlined workflow: **requirements → implementation**
+
+### Full Mode
+
+For serious products — full ceremony with design and phases:
+
+```bash
+# Initialize with full workflow
+foreman init --name my-project
+# Or with preset
+foreman init --name my-project --preset product
+
+# Define requirements
+# Edit .foreman/requirements.md
+
+# Pass requirements gate
+foreman gate requirements
+
+# Add design documents to .foreman/designs/
+foreman gate design
+
+# Create phases in .foreman/phases/
+# e.g., phases/1-setup.md, phases/2-backend.md
+foreman gate phases
+
+# Generate briefs for coding agents
+foreman brief 1-setup
+foreman brief 2-backend
+
+# Mark phases complete
+foreman phase 1-setup done
+foreman phase 2-backend done
+
+# Complete implementation
+foreman gate implementation
+```
+
+Full mode uses: **requirements → design → phases → implementation**
 
 ## Commands
 
-### Project Management
+### Core Commands
 
 | Command | Description |
 |---------|-------------|
-| `foreman init [--name <name>] [--dir <path>]` | Initialize a new project |
-| `foreman summary` | Show compact project summary |
+| `foreman init [--preset nightly\|product]` | Initialize a new project |
+| `foreman quick "<task>" [--brief]` | Quick mode: skip design/phases |
+| `foreman status` | Show project stage and gate status |
+| `foreman gate [stage]` | Validate and control stage gates |
+| `foreman brief <phase>` | Generate a coding agent brief |
+| `foreman phase <name> <status>` | Update phase status |
+| `foreman watch` | Watch project progress in real-time |
 
-### Requirements / Plan / Design
+### Gate Operations
 
-| Command | Description |
-|---------|-------------|
-| `foreman req show` | Print requirements |
-| `foreman req set` | Set requirements (reads from stdin) |
-| `foreman plan show` | Print plan |
-| `foreman plan set` | Set plan (reads from stdin) |
-| `foreman design show` | Print design document |
-| `foreman design set` | Set design (reads from stdin) |
+```bash
+# Check current gate
+foreman gate
 
-### Lane Management
+# Check specific gate
+foreman gate requirements
+foreman gate design
 
-| Command | Description |
-|---------|-------------|
-| `foreman lane add <name> [--summary "..."] [--after <deps>]` | Create a new lane |
-| `foreman lane list [--status <status>]` | List all lanes |
-| `foreman lane show <name>` | Print lane spec |
-| `foreman lane set <name>` | Set lane spec (reads from stdin) |
-| `foreman lane status <name> <status>` | Update lane status |
-| `foreman lane brief <name>` | **Generate a coding agent brief** |
+# Manual approval (for human-reviewed gates)
+foreman gate requirements --approve
+foreman gate requirements --reject --reason "Missing acceptance criteria"
 
-### Progress
+# Set reviewer type
+foreman gate requirements --reviewer human
+foreman gate requirements --reviewer auto
+```
 
-| Command | Description |
-|---------|-------------|
-| `foreman progress` | Show progress dashboard |
+### Presets
 
-### Lane Statuses
+| Preset | Mode | Auto-Advance | Reviewers |
+|--------|------|--------------|-----------|
+| `nightly` | Quick | 70% | All auto |
+| `product` | Full | Off | Human for requirements/design |
 
-- `planned` — Defined but not started
-- `ready` — Dependencies met, ready to start
-- `in-progress` — Actively being worked on
-- `review` — Work complete, under review
-- `done` — Finished
+```bash
+# Quick builds for nightly development
+foreman init --preset nightly
+# Equivalent to: foreman init --quick
+
+# Full workflow for products
+foreman init --preset product
+```
 
 ## The Brief (Key Feature)
 
-The `lane brief` command is foreman's primary output. It compiles everything a coding agent needs into a single, self-contained document:
+The `brief` command compiles everything a coding agent needs:
 
+**Quick mode** (`foreman brief impl`):
+```markdown
+# Implementation Brief
+
+**Project:** weather-cli
+**Mode:** Quick (no design/phases)
+
+## Task
+build a CLI that fetches weather data
+
+## Requirements
+(from .foreman/requirements.md)
+
+## Implementation Guidelines
+- Keep it simple and functional
+- Write clean, readable code
+- Include basic tests
 ```
-# Lane Brief: auth
+
+**Full mode** (`foreman brief 2-backend`):
+```markdown
+# Phase Brief: 2-backend
+
+**Status:** planned
 
 ## Project Context
 Name: my-project
-Description: REST API for task management
-Tech Stack: Go, PostgreSQL, Redis
-Constraints: Must support 1000 concurrent users
+Tech Stack: Go, PostgreSQL
 
 ## Requirements
-Build a REST API for managing tasks with...
+(from .foreman/requirements.md)
 
 ## Design Context
-# Architecture
-Clean architecture with 3 layers...
+(from .foreman/designs/*.md)
 
 ## Dependencies
-- setup: `done` — Project scaffolding, CI/CD, and dev tooling
+- ✅ 1-setup: done
 
-## Lane Spec
-(full contents of the lane's markdown spec)
-
-## Guidelines
-- This lane is currently: in-progress
-- Lane summary: Authentication and authorization layer
-
-### Related Lanes
-- setup (done): Project scaffolding, CI/CD, and dev tooling
-- core-api (planned): CRUD endpoints for tasks
-- realtime (planned): WebSocket notifications
-- deploy (planned): Production deployment and monitoring
+## Phase Spec
+(from .foreman/phases/2-backend.md)
 ```
 
 ## File Structure
 
-foreman manages a `.foreman/` directory in your project root:
-
+### Quick Mode
 ```
 .foreman/
-├── project.yaml          # Project metadata, requirements, constraints
-├── plan.md               # Planning overview (goals, approach, milestones)
-├── design.md             # High-level architecture/design decisions
-├── lanes/
-│   ├── 01-setup.yaml     # Lane metadata (status, deps, summary)
-│   ├── 01-setup.md       # Detailed spec for this lane
-│   ├── 02-auth.yaml
-│   ├── 02-auth.md
-│   └── ...
-└── progress.yaml         # Overall progress snapshot
+├── config.yaml      # Project config (preset: nightly)
+├── state.yaml       # Current stage, quick_mode: true
+├── requirements.md  # Task description
+└── briefs/
+    └── impl.md      # Generated brief
 ```
 
-### project.yaml
-
-```yaml
-name: "my-project"
-description: "REST API for task management"
-created: "2026-02-02T01:00:00+09:00"
-updated: "2026-02-02T01:00:00+09:00"
-requirements: |
-  Build a REST API for managing tasks...
-constraints: |
-  Must support 1000 concurrent users
-tech_stack:
-  - "Go"
-  - "PostgreSQL"
-tags:
-  - "backend"
-  - "api"
+### Full Mode
+```
+.foreman/
+├── config.yaml      # Project config
+├── state.yaml       # Current stage, gates, phases
+├── requirements.md  # Project requirements
+├── designs/         # Design documents
+│   ├── architecture.md
+│   └── api.md
+├── phases/          # Phase specifications
+│   ├── overview.md  # Phase overview
+│   ├── 1-setup.md
+│   └── 2-backend.md
+└── briefs/          # Generated briefs
+    ├── 1-setup.md
+    └── 2-backend.md
 ```
 
-### Lane YAML
+## Progress Watching
 
-```yaml
-name: "auth"
-order: 2
-status: "in-progress"
-summary: "Authentication and authorization layer"
-dependencies:
-  - "setup"
-created: "2026-02-02T01:00:00+09:00"
-updated: "2026-02-02T01:30:00+09:00"
+Monitor project progress in real-time:
+
+```bash
+foreman watch
+
+# Custom interval (default: 5s)
+foreman watch --interval 10
 ```
 
-## Behaviors
+Output:
+```
+👀 Watching project progress... (Ctrl+C to stop)
 
-- **Auto-detection**: foreman finds `.foreman/` by walking up from the current directory (like `git` finds `.git/`)
-- **Stdin piping**: All `set` commands read from stdin for easy scripting
-- **Auto-numbering**: Lanes are automatically numbered (01-, 02-, 03-, etc.)
-- **Progress tracking**: `progress.yaml` is automatically updated when lane statuses change
-- **Colored output**: Status indicators use colors for quick visual scanning
+[01:23:45] Project: my-project
+Mode: quick
+Stages: ✅ requirements → 🔵 implementation
+
+🎉 Stage advanced: requirements → implementation
+   📝 Phase 1-setup: planned → in-progress
+```
+
+## Who is this for?
+
+foreman is built for AI assistants (like those running on [OpenClaw](https://github.com/openclaw/openclaw)) that manage software projects. It bridges the gap between **planning** and **execution** by:
+
+1. Structuring project knowledge (requirements, design, constraints)
+2. Breaking work into **phases** — self-contained implementation units
+3. Generating **briefs** — compiled documents with all the context a coding agent needs
+4. **Quick mode** — skipping ceremony when speed matters
 
 ## License
 

@@ -43,14 +43,28 @@ var statusCmd = &cobra.Command{
 			dim.Printf("%s\n", cfg.Description)
 		}
 		
+		// Mode indicator
+		if st.QuickMode {
+			yellow := color.New(color.FgYellow)
+			yellow.Printf("Mode: quick")
+			if st.Confidence > 0 {
+				fmt.Printf(" (auto-advance at %d%%)", st.Confidence)
+			}
+			fmt.Println()
+		} else if cfg.Preset != "" {
+			dim := color.New(color.Faint)
+			dim.Printf("Preset: %s\n", cfg.Preset)
+		}
+		
 		// Current stage
-		stageIndex := state.GetStageIndex(st.CurrentStage) + 1
-		totalStages := len(state.Stages)
+		stages := st.GetActiveStages()
+		stageIndex := state.GetStageIndexForMode(st.CurrentStage, st.QuickMode) + 1
+		totalStages := len(stages)
 		fmt.Printf("Stage: %s (%d/%d)\n\n", st.CurrentStage, stageIndex, totalStages)
 
 		// Gates status
 		fmt.Println("Gates:")
-		for _, stage := range state.Stages {
+		for _, stage := range stages {
 			gate := st.Gates[stage]
 			if gate == nil {
 				continue
@@ -68,7 +82,7 @@ var statusCmd = &cobra.Command{
 				extra = fmt.Sprintf(" (reason: %s)", gate.Reason)
 			}
 
-			fmt.Printf("  %s %-12s %s%s\n", indicator, stage, statusText, extra)
+			fmt.Printf("  %s %-15s %s%s\n", indicator, stage, statusText, extra)
 		}
 
 		// Phases (if any)

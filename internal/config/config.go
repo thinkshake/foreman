@@ -16,6 +16,8 @@ type Config struct {
 	TechStack   []string  `yaml:"tech_stack"`
 	Created     time.Time `yaml:"created"`
 	Reviewers   Reviewers `yaml:"reviewers"`
+	Preset      string    `yaml:"preset,omitempty"`      // v3: "nightly", "product", or empty
+	AutoAdvance int       `yaml:"auto_advance,omitempty"` // v3: confidence threshold for auto-advance (0-100)
 }
 
 // Reviewers defines gate reviewer configuration.
@@ -95,5 +97,35 @@ func NewDefault(name string) *Config {
 			Default:   "auto",
 			Overrides: make(map[string]string),
 		},
+		Preset:      "",
+		AutoAdvance: 0,
 	}
+}
+
+// NewWithPreset creates a config with a specific preset.
+func NewWithPreset(name, preset string) *Config {
+	cfg := NewDefault(name)
+	cfg.Preset = preset
+	
+	switch preset {
+	case "nightly":
+		// Nightly builds: fast, auto-advance everything
+		cfg.AutoAdvance = 70 // Auto-advance at 70% confidence
+		cfg.Reviewers.Default = "auto"
+	case "product":
+		// Product builds: careful, human review for key stages
+		cfg.AutoAdvance = 0 // No auto-advance
+		cfg.Reviewers.Default = "auto"
+		cfg.Reviewers.Overrides = map[string]string{
+			"requirements": "human",
+			"design":       "human",
+		}
+	}
+	
+	return cfg
+}
+
+// IsQuickPreset returns true if the preset implies quick mode.
+func (c *Config) IsQuickPreset() bool {
+	return c.Preset == "nightly"
 }

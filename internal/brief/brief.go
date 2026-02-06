@@ -180,3 +180,76 @@ func getStatusIndicator(status string) string {
 func getCurrentTimestamp() string {
 	return time.Now().Format(time.RFC3339)
 }
+
+// GenerateQuickBrief creates a streamlined brief for quick mode.
+func GenerateQuickBrief(root, task string) (string, error) {
+	// Load project config
+	cfg, err := config.Load(root)
+	if err != nil {
+		return "", fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Read requirements (which contains the task details)
+	requirements := project.ReadRequirements(root)
+
+	// Build the brief
+	var b strings.Builder
+
+	// Header
+	b.WriteString("# Implementation Brief\n\n")
+	b.WriteString(fmt.Sprintf("**Project:** %s\n", cfg.Name))
+	b.WriteString(fmt.Sprintf("**Generated:** %s\n", getCurrentTimestamp()))
+	b.WriteString(fmt.Sprintf("**Mode:** Quick (no design/phases)\n\n"))
+
+	// Task
+	b.WriteString("## Task\n\n")
+	b.WriteString(task)
+	b.WriteString("\n\n")
+
+	// Requirements
+	b.WriteString("## Requirements\n\n")
+	b.WriteString(requirements)
+	b.WriteString("\n\n")
+
+	// Tech Stack (if specified)
+	if len(cfg.TechStack) > 0 {
+		b.WriteString("## Tech Stack\n\n")
+		for _, tech := range cfg.TechStack {
+			b.WriteString(fmt.Sprintf("- %s\n", tech))
+		}
+		b.WriteString("\n")
+	}
+
+	// Implementation Guidelines
+	b.WriteString("## Implementation Guidelines\n\n")
+	b.WriteString("This is a **quick build** — focus on getting a working solution.\n\n")
+	b.WriteString("- Keep it simple and functional\n")
+	b.WriteString("- Write clean, readable code\n")
+	b.WriteString("- Include basic tests for core functionality\n")
+	b.WriteString("- Add a README with usage instructions\n")
+	b.WriteString("\n")
+
+	// Completion
+	b.WriteString("## Completion\n\n")
+	b.WriteString("When done:\n")
+	b.WriteString("- Run `foreman gate implementation` to mark as complete\n")
+	b.WriteString("- Ensure the build compiles/runs successfully\n")
+	b.WriteString("- All tests pass\n")
+
+	return b.String(), nil
+}
+
+// GenerateQuickBriefAndSave creates a quick brief and saves it.
+func GenerateQuickBriefAndSave(root, task string) (string, error) {
+	brief, err := GenerateQuickBrief(root, task)
+	if err != nil {
+		return "", err
+	}
+
+	briefPath := project.BriefPath(root, "impl")
+	if err := os.WriteFile(briefPath, []byte(brief), 0644); err != nil {
+		return "", fmt.Errorf("failed to write brief: %w", err)
+	}
+
+	return brief, nil
+}

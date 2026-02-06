@@ -9,11 +9,17 @@ import (
 
 var rootCmd = &cobra.Command{
 	Use:   "foreman",
-	Short: "🏗️  foreman v2 — AI-native project management CLI",
-	Long: `foreman v2 is a structured project workflow management tool for AI assistants.
+	Short: "🏗️  foreman v3 — AI-native project management CLI",
+	Long: `foreman v3 is a structured project workflow management tool for AI assistants.
 
-It enforces a staged development workflow: requirements → design → phases → implementation.
-Each stage has gates that validate completion before advancing to the next stage.
+FULL MODE (default):
+  Enforces a staged workflow: requirements → design → phases → implementation.
+  Each stage has gates that validate completion before advancing.
+
+QUICK MODE (v3):
+  Streamlined workflow: requirements → implementation.
+  Use 'foreman quick "<task>"' or 'foreman init --preset nightly'.
+  Perfect for scripts, quick fixes, and nightly builds.
 
 Phases are self-contained implementation units that get handed off to coding agents
 via compiled briefs containing all the context needed for independent execution.`,

@@ -9,8 +9,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Stages defines the ordered list of stages.
+// Stages defines the ordered list of stages for full workflow.
 var Stages = []string{"requirements", "design", "phases", "implementation"}
+
+// QuickStages defines the stages for quick mode (no design/phases).
+var QuickStages = []string{"requirements", "implementation"}
 
 // Gate represents a stage gate with its status and review info.
 type Gate struct {
@@ -31,6 +34,9 @@ type State struct {
 	CurrentStage string             `yaml:"current_stage"`
 	Gates        map[string]*Gate   `yaml:"gates"`
 	Phases       []Phase            `yaml:"phases"`
+	QuickMode    bool               `yaml:"quick_mode,omitempty"`   // v3: skip design/phases
+	QuickTask    string             `yaml:"quick_task,omitempty"`   // v3: task description for quick mode
+	Confidence   int                `yaml:"confidence,omitempty"`   // v3: auto-advance threshold (0-100)
 }
 
 // StatePath returns the path to state.yaml.
@@ -80,6 +86,20 @@ func GetStageIndex(stage string) int {
 	return -1
 }
 
+// GetStageIndexForMode returns stage index respecting quick mode.
+func GetStageIndexForMode(stage string, quickMode bool) int {
+	stages := Stages
+	if quickMode {
+		stages = QuickStages
+	}
+	for i, s := range stages {
+		if s == stage {
+			return i
+		}
+	}
+	return -1
+}
+
 // GetNextStage returns the next stage after the given one, or empty if last.
 func GetNextStage(stage string) string {
 	idx := GetStageIndex(stage)
@@ -87,6 +107,27 @@ func GetNextStage(stage string) string {
 		return ""
 	}
 	return Stages[idx+1]
+}
+
+// GetNextStageForMode returns next stage respecting quick mode.
+func GetNextStageForMode(stage string, quickMode bool) string {
+	stages := Stages
+	if quickMode {
+		stages = QuickStages
+	}
+	idx := GetStageIndexForMode(stage, quickMode)
+	if idx == -1 || idx >= len(stages)-1 {
+		return ""
+	}
+	return stages[idx+1]
+}
+
+// GetActiveStages returns stages for current mode.
+func (s *State) GetActiveStages() []string {
+	if s.QuickMode {
+		return QuickStages
+	}
+	return Stages
 }
 
 // Load reads and parses state.yaml from the given root.
@@ -141,6 +182,26 @@ func NewDefault() *State {
 		CurrentStage: "requirements",
 		Gates:        gates,
 		Phases:       []Phase{},
+		QuickMode:    false,
+		Confidence:   0,
+	}
+}
+
+// NewQuickMode creates a quick mode state (skips design/phases).
+func NewQuickMode(task string, confidence int) *State {
+	gates := make(map[string]*Gate)
+	
+	// Quick mode only has requirements and implementation
+	gates["requirements"] = &Gate{Status: "open"}
+	gates["implementation"] = &Gate{Status: "blocked"}
+	
+	return &State{
+		CurrentStage: "requirements",
+		Gates:        gates,
+		Phases:       []Phase{},
+		QuickMode:    true,
+		QuickTask:    task,
+		Confidence:   confidence,
 	}
 }
 
@@ -156,16 +217,28 @@ func (s *State) AdvanceToNextStage() error {
 		return fmt.Errorf("cannot advance: current stage gate not approved")
 	}
 	
-	nextStage := GetNextStage(s.CurrentStage)
+	nextStage := GetNextStageForMode(s.CurrentStage, s.QuickMode)
 	if nextStage == "" {
 		return fmt.Errorf("already at final stage")
 	}
 	
 	s.CurrentStage = nextStage
-	s.Gates[nextStage].Status = "open"
-	s.Gates[nextStage].Reason = "" // Clear any previous rejection reason
+	if s.Gates[nextStage] == nil {
+		s.Gates[nextStage] = &Gate{Status: "open"}
+	} else {
+		s.Gates[nextStage].Status = "open"
+		s.Gates[nextStage].Reason = "" // Clear any previous rejection reason
+	}
 	
 	return nil
+}
+
+// ShouldAutoAdvance checks if the gate should auto-advance based on confidence.
+func (s *State) ShouldAutoAdvance(confidence int) bool {
+	if s.Confidence <= 0 {
+		return false // No auto-advance configured
+	}
+	return confidence >= s.Confidence
 }
 
 // ApproveGate approves a gate and potentially advances the stage.
@@ -188,7 +261,7 @@ func (s *State) ApproveGate(stage, approvedBy string) error {
 	
 	// If this is the current stage, advance (unless it's the final stage)
 	if stage == s.CurrentStage {
-		nextStage := GetNextStage(stage)
+		nextStage := GetNextStageForMode(stage, s.QuickMode)
 		if nextStage != "" {
 			return s.AdvanceToNextStage()
 		}

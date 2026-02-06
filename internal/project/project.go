@@ -72,19 +72,36 @@ func BriefPath(root, phaseName string) string {
 	return filepath.Join(BriefsPath(root), phaseName+".md")
 }
 
-// Init creates a new .foreman/ directory with v2 structure.
+// InitOptions configures project initialization.
+type InitOptions struct {
+	Name   string
+	Preset string // "nightly", "product", or empty
+}
+
+// Init creates a new .foreman/ directory with v2 structure (legacy).
 func Init(dir, name string) (string, error) {
+	return InitWithOptions(dir, InitOptions{Name: name})
+}
+
+// InitWithOptions creates a new .foreman/ directory with v3 features.
+func InitWithOptions(dir string, opts InitOptions) (string, error) {
 	foremanDir := filepath.Join(dir, ForemanDir)
 	if _, err := os.Stat(foremanDir); err == nil {
 		return "", fmt.Errorf(".foreman/ already exists in %s", dir)
 	}
 
+	// Determine if quick mode based on preset
+	quickMode := opts.Preset == "nightly"
+
 	// Create directory structure
 	dirs := []string{
 		foremanDir,
-		DesignsPath(dir),
-		PhasesPath(dir),
 		BriefsPath(dir),
+	}
+	
+	// Full mode includes designs and phases directories
+	if !quickMode {
+		dirs = append(dirs, DesignsPath(dir), PhasesPath(dir))
 	}
 	
 	for _, d := range dirs {
@@ -94,24 +111,55 @@ func Init(dir, name string) (string, error) {
 	}
 
 	// Determine project name
+	name := opts.Name
 	if name == "" {
 		name = filepath.Base(dir)
 	}
 
-	// Create config.yaml
-	cfg := config.NewDefault(name)
+	// Create config.yaml with preset
+	var cfg *config.Config
+	if opts.Preset != "" {
+		cfg = config.NewWithPreset(name, opts.Preset)
+	} else {
+		cfg = config.NewDefault(name)
+	}
 	if err := config.Save(dir, cfg); err != nil {
 		return "", fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
 	// Create state.yaml
-	st := state.NewDefault()
+	var st *state.State
+	if quickMode {
+		st = state.NewQuickMode("", cfg.AutoAdvance)
+	} else {
+		st = state.NewDefault()
+		st.Confidence = cfg.AutoAdvance
+	}
 	if err := state.Save(dir, st); err != nil {
 		return "", fmt.Errorf("failed to create state.yaml: %w", err)
 	}
 
 	// Create initial requirements.md placeholder
-	reqContent := `# Requirements
+	var reqContent string
+	if quickMode {
+		reqContent = `# Task
+
+_Describe what you want to build. Keep it simple._
+
+## Goal
+What does this do?
+
+## Features
+- Feature 1
+- Feature 2
+
+## Tech Stack
+- (e.g., TypeScript/Bun, Go, etc.)
+
+_Replace this placeholder with your actual task._
+`
+	} else {
+		reqContent = `# Requirements
 
 _Define what this project should accomplish. Include:_
 
@@ -122,6 +170,7 @@ _Define what this project should accomplish. Include:_
 
 Replace this placeholder with actual requirements.
 `
+	}
 	if err := os.WriteFile(RequirementsPath(dir), []byte(reqContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to create requirements.md: %w", err)
 	}

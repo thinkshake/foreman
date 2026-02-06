@@ -56,8 +56,17 @@ the stage work is complete before allowing progression.`,
 			targetStage = args[0]
 		}
 
-		if !state.IsValidStage(targetStage) {
-			return fmt.Errorf("invalid stage: %s (valid: %s)", targetStage, strings.Join(state.Stages, ", "))
+		// Validate stage against active stages (respects quick mode)
+		activeStages := st.GetActiveStages()
+		isValid := false
+		for _, s := range activeStages {
+			if s == targetStage {
+				isValid = true
+				break
+			}
+		}
+		if !isValid {
+			return fmt.Errorf("invalid stage: %s (valid for current mode: %s)", targetStage, strings.Join(activeStages, ", "))
 		}
 
 		// Handle reviewer change
@@ -143,7 +152,7 @@ func handleValidate(root, stage string, cfg *config.Config, st *state.State) err
 			cyan.Printf("🎉 Gate approved automatically!\n")
 			
 			if stage == st.CurrentStage {
-				nextStage := state.GetNextStage(stage)
+				nextStage := state.GetNextStageForMode(stage, st.QuickMode)
 				if nextStage != "" {
 					fmt.Printf("Advanced to stage: %s\n", nextStage)
 				} else {
@@ -192,7 +201,7 @@ func handleApprove(root, stage string, st *state.State) error {
 	green.Printf("✓ Gate %s approved!\n", stage)
 
 	if stage == st.CurrentStage {
-		nextStage := state.GetNextStage(stage)
+		nextStage := state.GetNextStageForMode(stage, st.QuickMode)
 		if nextStage != "" {
 			fmt.Printf("Advanced to stage: %s\n", nextStage)
 		} else {

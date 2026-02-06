@@ -20,7 +20,10 @@ and the specific phase plan.
 
 The brief is saved to .foreman/briefs/<phase-name>.md and also printed to stdout.
 
-Example:
+For quick mode, use 'impl' as the phase name:
+  foreman brief impl
+
+For full mode, specify phase:
   foreman brief 1-setup
   foreman brief 2-backend`,
 	Args: cobra.ExactArgs(1),
@@ -43,6 +46,37 @@ Example:
 			return err
 		}
 
+		// Handle quick mode "impl" phase
+		if st.QuickMode && phaseName == "impl" {
+			task := st.QuickTask
+			if task == "" {
+				task = "Implementation task"
+			}
+			
+			briefContent, err := brief.GenerateQuickBriefAndSave(root, task)
+			if err != nil {
+				return err
+			}
+
+			briefPath := project.BriefPath(root, phaseName)
+			
+			green := color.New(color.FgGreen, color.Bold)
+			green.Printf("✓ ")
+			fmt.Printf("Generated quick brief: %s\n", phaseName)
+			
+			dim := color.New(color.Faint)
+			dim.Printf("Saved to: %s\n", briefPath)
+			fmt.Println()
+
+			cyan := color.New(color.FgCyan)
+			cyan.Println("Brief content:")
+			fmt.Println("=" + string(make([]byte, 50)) + "=")
+			fmt.Print(briefContent)
+
+			return nil
+		}
+
+		// Full mode: sync phases
 		if err := project.SyncPhasesToState(root, st); err != nil {
 			return fmt.Errorf("failed to sync phases: %w", err)
 		}
@@ -54,6 +88,9 @@ Example:
 		// Validate phase exists
 		phase := st.GetPhase(phaseName)
 		if phase == nil {
+			if st.QuickMode {
+				return fmt.Errorf("phase %q not found\n\nQuick mode uses 'impl' as the phase name:\n  foreman brief impl", phaseName)
+			}
 			return fmt.Errorf("phase %q not found\n\nAvailable phases:", phaseName)
 		}
 
