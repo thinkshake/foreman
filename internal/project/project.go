@@ -75,7 +75,8 @@ func BriefPath(root, phaseName string) string {
 // InitOptions configures project initialization.
 type InitOptions struct {
 	Name   string
-	Preset string // "nightly", "product", or empty
+	Preset string // minimal, light, full (or aliases: nightly, product)
+	TDD    bool   // Enable TDD mode
 }
 
 // Init creates a new .foreman/ directory with v2 structure (legacy).
@@ -90,50 +91,69 @@ func InitWithOptions(dir string, opts InitOptions) (string, error) {
 		return "", fmt.Errorf(".foreman/ already exists in %s", dir)
 	}
 
-	// Determine if quick mode based on preset
-	quickMode := opts.Preset == "nightly"
-
-	// Create directory structure
-	dirs := []string{
-		foremanDir,
-		BriefsPath(dir),
-	}
-	
-	// Full mode includes designs and phases directories
-	if !quickMode {
-		dirs = append(dirs, DesignsPath(dir), PhasesPath(dir))
-	}
-	
-	for _, d := range dirs {
-		if err := os.MkdirAll(d, 0755); err != nil {
-			return "", fmt.Errorf("failed to create %s: %w", d, err)
-		}
-	}
-
 	// Determine project name
 	name := opts.Name
 	if name == "" {
 		name = filepath.Base(dir)
 	}
 
-	// Create config.yaml with preset
+	// Create config.yaml with preset and optional TDD
 	var cfg *config.Config
 	if opts.Preset != "" {
-		cfg = config.NewWithPreset(name, opts.Preset)
+		if opts.TDD {
+			cfg = config.NewWithTesting(name, opts.Preset, true)
+		} else {
+			cfg = config.NewWithPreset(name, opts.Preset)
+		}
 	} else {
 		cfg = config.NewDefault(name)
+		if opts.TDD {
+			cfg.Testing = &config.Testing{
+				Style:    config.TestingStyleTDD,
+				Required: false,
+			}
+		}
 	}
+
+	// Determine workflow from config
+	workflow := cfg.GetWorkflow()
+	quickMode := cfg.IsQuickPreset()
+	minimalMode := cfg.IsMinimalPreset()
+	hasDesign := cfg.HasDesignPhase()
+	hasPhases := cfg.HasPhasesPhase()
+
+	// Create directory structure
+	dirs := []string{
+		foremanDir,
+		BriefsPath(dir),
+	}
+
+	// Full mode includes designs and phases directories
+	if hasDesign {
+		dirs = append(dirs, DesignsPath(dir))
+	}
+	if hasPhases {
+		dirs = append(dirs, PhasesPath(dir))
+	}
+
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return "", fmt.Errorf("failed to create %s: %w", d, err)
+		}
+	}
+
 	if err := config.Save(dir, cfg); err != nil {
 		return "", fmt.Errorf("failed to create config.yaml: %w", err)
 	}
 
-	// Create state.yaml
+	// Create state.yaml with appropriate workflow
 	var st *state.State
-	if quickMode {
+	if minimalMode {
+		st = state.NewMinimalMode("")
+	} else if quickMode {
 		st = state.NewQuickMode("", cfg.AutoAdvance)
 	} else {
-		st = state.NewDefault()
-		st.Confidence = cfg.AutoAdvance
+		st = state.NewWithWorkflow(workflow, cfg.AutoAdvance, false)
 	}
 	if err := state.Save(dir, st); err != nil {
 		return "", fmt.Errorf("failed to create state.yaml: %w", err)

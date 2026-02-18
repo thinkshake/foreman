@@ -15,6 +15,14 @@ var Stages = []string{"requirements", "design", "phases", "implementation"}
 // QuickStages defines the stages for quick mode (no design/phases).
 var QuickStages = []string{"requirements", "implementation"}
 
+// ValidStages contains all possible workflow stages.
+var ValidStages = map[string]bool{
+	"requirements":   true,
+	"design":         true,
+	"phases":         true,
+	"implementation": true,
+}
+
 // Gate represents a stage gate with its status and review info.
 type Gate struct {
 	Status     string     `yaml:"status"`      // "open", "pending-review", "approved", "blocked"
@@ -37,6 +45,8 @@ type State struct {
 	QuickMode    bool               `yaml:"quick_mode,omitempty"`   // v3: skip design/phases
 	QuickTask    string             `yaml:"quick_task,omitempty"`   // v3: task description for quick mode
 	Confidence   int                `yaml:"confidence,omitempty"`   // v3: auto-advance threshold (0-100)
+	Workflow     []string           `yaml:"workflow,omitempty"`     // v2.1: custom workflow stages
+	MinimalMode  bool               `yaml:"minimal_mode,omitempty"` // v2.1: no gates at all
 }
 
 // StatePath returns the path to state.yaml.
@@ -124,10 +134,40 @@ func GetNextStageForMode(stage string, quickMode bool) string {
 
 // GetActiveStages returns stages for current mode.
 func (s *State) GetActiveStages() []string {
+	// Custom workflow takes priority
+	if len(s.Workflow) > 0 {
+		return s.Workflow
+	}
 	if s.QuickMode {
 		return QuickStages
 	}
 	return Stages
+}
+
+// GetStageIndexInWorkflow returns stage index within current workflow.
+func (s *State) GetStageIndexInWorkflow(stage string) int {
+	stages := s.GetActiveStages()
+	for i, st := range stages {
+		if st == stage {
+			return i
+		}
+	}
+	return -1
+}
+
+// GetNextStageInWorkflow returns the next stage in current workflow.
+func (s *State) GetNextStageInWorkflow(stage string) string {
+	stages := s.GetActiveStages()
+	idx := s.GetStageIndexInWorkflow(stage)
+	if idx == -1 || idx >= len(stages)-1 {
+		return ""
+	}
+	return stages[idx+1]
+}
+
+// IsStageInWorkflow checks if a stage is part of the current workflow.
+func (s *State) IsStageInWorkflow(stage string) bool {
+	return s.GetStageIndexInWorkflow(stage) >= 0
 }
 
 // Load reads and parses state.yaml from the given root.
@@ -190,11 +230,11 @@ func NewDefault() *State {
 // NewQuickMode creates a quick mode state (skips design/phases).
 func NewQuickMode(task string, confidence int) *State {
 	gates := make(map[string]*Gate)
-	
+
 	// Quick mode only has requirements and implementation
 	gates["requirements"] = &Gate{Status: "open"}
 	gates["implementation"] = &Gate{Status: "blocked"}
-	
+
 	return &State{
 		CurrentStage: "requirements",
 		Gates:        gates,
@@ -202,6 +242,82 @@ func NewQuickMode(task string, confidence int) *State {
 		QuickMode:    true,
 		QuickTask:    task,
 		Confidence:   confidence,
+		Workflow:     QuickStages,
+		MinimalMode:  false,
+	}
+}
+
+// NewMinimalMode creates a minimal mode state (no gates, straight to implementation).
+func NewMinimalMode(task string) *State {
+	now := time.Now()
+	gates := make(map[string]*Gate)
+
+	// Minimal mode: requirements is auto-approved, implementation is open
+	gates["requirements"] = &Gate{
+		Status:     "approved",
+		ApprovedAt: &now,
+		ApprovedBy: "auto",
+	}
+	gates["implementation"] = &Gate{Status: "open"}
+
+	return &State{
+		CurrentStage: "implementation", // Skip straight to implementation
+		Gates:        gates,
+		Phases:       []Phase{},
+		QuickMode:    true,
+		QuickTask:    task,
+		Confidence:   100,
+		Workflow:     QuickStages,
+		MinimalMode:  true,
+	}
+}
+
+// NewWithWorkflow creates a state with a custom workflow.
+func NewWithWorkflow(workflow []string, confidence int, minimal bool) *State {
+	gates := make(map[string]*Gate)
+	now := time.Now()
+
+	if len(workflow) == 0 {
+		workflow = Stages
+	}
+
+	startStage := workflow[0]
+
+	if minimal {
+		// Minimal: auto-approve everything except implementation
+		for i, stage := range workflow {
+			if i == len(workflow)-1 {
+				// Last stage (implementation) is open
+				gates[stage] = &Gate{Status: "open"}
+				startStage = stage
+			} else {
+				// All others are auto-approved
+				gates[stage] = &Gate{
+					Status:     "approved",
+					ApprovedAt: &now,
+					ApprovedBy: "auto",
+				}
+			}
+		}
+	} else {
+		// Normal: first stage is open, rest are blocked
+		for i, stage := range workflow {
+			if i == 0 {
+				gates[stage] = &Gate{Status: "open"}
+			} else {
+				gates[stage] = &Gate{Status: "blocked"}
+			}
+		}
+	}
+
+	return &State{
+		CurrentStage: startStage,
+		Gates:        gates,
+		Phases:       []Phase{},
+		QuickMode:    len(workflow) <= 2, // Quick if 2 or fewer stages
+		Confidence:   confidence,
+		Workflow:     workflow,
+		MinimalMode:  minimal,
 	}
 }
 
@@ -216,12 +332,17 @@ func (s *State) AdvanceToNextStage() error {
 	if !s.CanAdvanceStage() {
 		return fmt.Errorf("cannot advance: current stage gate not approved")
 	}
-	
-	nextStage := GetNextStageForMode(s.CurrentStage, s.QuickMode)
+
+	// Use workflow-aware next stage
+	nextStage := s.GetNextStageInWorkflow(s.CurrentStage)
+	if nextStage == "" {
+		// Fallback to old behavior for backward compat
+		nextStage = GetNextStageForMode(s.CurrentStage, s.QuickMode)
+	}
 	if nextStage == "" {
 		return fmt.Errorf("already at final stage")
 	}
-	
+
 	s.CurrentStage = nextStage
 	if s.Gates[nextStage] == nil {
 		s.Gates[nextStage] = &Gate{Status: "open"}
@@ -229,7 +350,7 @@ func (s *State) AdvanceToNextStage() error {
 		s.Gates[nextStage].Status = "open"
 		s.Gates[nextStage].Reason = "" // Clear any previous rejection reason
 	}
-	
+
 	return nil
 }
 

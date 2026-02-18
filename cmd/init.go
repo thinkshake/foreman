@@ -7,6 +7,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"github.com/thinkshake/foreman/internal/config"
 	"github.com/thinkshake/foreman/internal/project"
 )
 
@@ -15,14 +16,23 @@ var initCmd = &cobra.Command{
 	Short: "Initialize a new foreman project",
 	Long: `Creates a .foreman/ directory with initial project files.
 
-Presets (v3):
-  --preset nightly   Quick mode, auto-advance gates, minimal ceremony
-  --preset product   Full workflow, human review for requirements/design`,
+Presets (v2.1):
+  --preset minimal   Script/hotfix: no gates, straight to implementation
+  --preset light     Small tool: requirements gate only, no design phase
+  --preset full      Product: full workflow with design and phases
+
+Legacy aliases (v3 compat):
+  --preset nightly   Alias for minimal
+  --preset product   Alias for full
+
+TDD Integration:
+  --tdd              Enable test-driven development mode`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		dir, _ := cmd.Flags().GetString("dir")
 		preset, _ := cmd.Flags().GetString("preset")
 		quick, _ := cmd.Flags().GetBool("quick")
+		tdd, _ := cmd.Flags().GetBool("tdd")
 
 		if dir == "" {
 			wd, err := os.Getwd()
@@ -37,14 +47,15 @@ Presets (v3):
 			return err
 		}
 
-		// --quick implies nightly preset
+		// --quick implies minimal preset
 		if quick && preset == "" {
-			preset = "nightly"
+			preset = config.PresetMinimal
 		}
 
 		opts := project.InitOptions{
 			Name:   name,
 			Preset: preset,
+			TDD:    tdd,
 		}
 
 		root, err := project.InitWithOptions(abs, opts)
@@ -54,13 +65,20 @@ Presets (v3):
 
 		green := color.New(color.FgGreen, color.Bold)
 		green.Printf("✓ ")
-		
-		version := "v3"
+
+		version := "v2.1"
+		normalizedPreset := config.NormalizePreset(preset)
 		mode := ""
-		if preset == "nightly" {
-			mode = " (quick mode)"
-		} else if preset == "product" {
+		switch normalizedPreset {
+		case config.PresetMinimal:
+			mode = " (minimal mode)"
+		case config.PresetLight:
+			mode = " (light mode)"
+		case config.PresetFull:
 			mode = " (full workflow)"
+		}
+		if tdd {
+			mode += " + TDD"
 		}
 		fmt.Printf("Initialized foreman %s project%s in %s\n", version, mode, root)
 		fmt.Println()
@@ -70,7 +88,7 @@ Presets (v3):
 		dim.Println("  .foreman/config.yaml")
 		dim.Println("  .foreman/state.yaml")
 		dim.Println("  .foreman/requirements.md")
-		if preset != "nightly" {
+		if normalizedPreset == config.PresetFull {
 			dim.Println("  .foreman/designs/")
 			dim.Println("  .foreman/phases/")
 		}
@@ -79,12 +97,17 @@ Presets (v3):
 
 		cyan := color.New(color.FgCyan)
 		cyan.Println("Next steps:")
-		if preset == "nightly" {
+		switch normalizedPreset {
+		case config.PresetMinimal:
+			fmt.Println("  foreman status              # Check current stage")
+			fmt.Println("  # Edit .foreman/requirements.md with your task")
+			fmt.Println("  foreman brief impl          # Generate brief and start building")
+		case config.PresetLight:
 			fmt.Println("  foreman status              # Check current stage")
 			fmt.Println("  # Edit .foreman/requirements.md with your task")
 			fmt.Println("  foreman gate requirements   # Advance to implementation")
 			fmt.Println("  foreman brief impl          # Generate brief for coding agent")
-		} else {
+		default:
 			fmt.Println("  foreman status              # Check current stage")
 			fmt.Println("  # Edit .foreman/requirements.md with your project requirements")
 			fmt.Println("  foreman gate requirements   # Validate and advance past requirements")
@@ -97,7 +120,8 @@ Presets (v3):
 func init() {
 	initCmd.Flags().String("name", "", "Project name (defaults to directory name)")
 	initCmd.Flags().String("dir", "", "Directory to initialize (defaults to cwd)")
-	initCmd.Flags().String("preset", "", "Workflow preset: nightly (quick) or product (full)")
-	initCmd.Flags().Bool("quick", false, "Shorthand for --preset nightly")
+	initCmd.Flags().String("preset", "", "Workflow preset: minimal, light, full (or aliases: nightly, product)")
+	initCmd.Flags().Bool("quick", false, "Shorthand for --preset minimal")
+	initCmd.Flags().Bool("tdd", false, "Enable test-driven development mode")
 	rootCmd.AddCommand(initCmd)
 }

@@ -1,15 +1,15 @@
-# 🏗️ foreman v3
+# 🏗️ foreman v2.1
 
 **AI-native project management CLI for planning and preparing coding agent work.**
 
 foreman is a file-based project management tool designed for AI assistants. It handles PM/EM responsibilities — requirements gathering, planning, high-level design, task breakdown into phases, and progress tracking — to prepare work that coding agents can execute independently.
 
-## What's New in v3
+## What's New in v2.1
 
-- **Quick Mode** — `foreman quick "<task>"` skips design/phases for rapid builds
-- **Workflow Presets** — `--preset nightly` or `--preset product` for common patterns
-- **Auto-Advance Gates** — Confidence-based automatic gate approval
-- **Progress Watching** — `foreman watch` for real-time progress monitoring
+- **Workflow Presets** — `minimal`, `light`, `full` for different project sizes
+- **TDD Integration** — `--tdd` flag enables test-driven development mode with brief injection
+- **Custom Workflows** — Power users can define custom workflow stages
+- **Backward Compatible** — `nightly` and `product` presets still work (mapped to `minimal` and `full`)
 
 ## Installation
 
@@ -25,61 +25,105 @@ cd foreman
 go build -o foreman .
 ```
 
-## Two Modes
+## Workflow Presets
 
-### Quick Mode (v3)
+| Preset | Use Case | Gates | Stages | Auto-Advance |
+|--------|----------|-------|--------|--------------|
+| `minimal` | Script, hotfix | 0 | requirements → implementation | 100% |
+| `light` | Small tool, feature | 1 | requirements → implementation | 70% |
+| `full` | Product, complex system | 3 | requirements → design → phases → implementation | Off |
 
-For scripts, quick fixes, and nightly builds — skip the ceremony:
+### Minimal Mode
+
+For scripts, hotfixes, and quick builds — no gates, straight to implementation:
 
 ```bash
-# Initialize and generate brief in one command
-foreman quick "build a CLI that fetches weather data" --brief
-
-# Or step by step:
-foreman quick "build a weather CLI"
-# Review .foreman/requirements.md
-foreman gate requirements
+foreman init --preset minimal --name my-script
+# Requirements auto-approved, already at implementation
 foreman brief impl
 ```
 
-Quick mode uses a streamlined workflow: **requirements → implementation**
+### Light Mode
+
+For small tools and features — one gate, no design phase:
+
+```bash
+foreman init --preset light --name my-tool
+# Edit .foreman/requirements.md
+foreman gate requirements   # One gate to pass
+foreman brief impl
+```
 
 ### Full Mode
 
-For serious products — full ceremony with design and phases:
+For products and complex systems — full ceremony with design and phases:
 
 ```bash
-# Initialize with full workflow
-foreman init --name my-project
-# Or with preset
-foreman init --name my-project --preset product
-
-# Define requirements
+foreman init --preset full --name my-product
 # Edit .foreman/requirements.md
-
-# Pass requirements gate
 foreman gate requirements
-
-# Add design documents to .foreman/designs/
+# Add designs to .foreman/designs/
 foreman gate design
-
-# Create phases in .foreman/phases/
-# e.g., phases/1-setup.md, phases/2-backend.md
+# Add phases to .foreman/phases/
 foreman gate phases
-
-# Generate briefs for coding agents
 foreman brief 1-setup
 foreman brief 2-backend
-
-# Mark phases complete
-foreman phase 1-setup done
-foreman phase 2-backend done
-
-# Complete implementation
-foreman gate implementation
 ```
 
-Full mode uses: **requirements → design → phases → implementation**
+## TDD Integration
+
+Enable test-driven development with the `--tdd` flag:
+
+```bash
+foreman init --preset light --tdd --name my-project
+```
+
+This adds a `testing` block to your config:
+
+```yaml
+testing:
+  style: tdd        # tdd | coverage | none
+  required: false   # Block phase completion without tests?
+  framework: vitest # Hint for coding agent
+```
+
+When TDD is enabled, `foreman brief` injects TDD instructions:
+
+```markdown
+## Test-Driven Development
+
+⚠️ **TDD is enabled for this project.** Follow this workflow:
+
+1. **Write tests first** — Define expected behavior before implementation
+2. **Run tests (they should fail)** — Confirm the test is valid
+3. **Implement the feature** — Write minimal code to pass the test
+4. **Refactor** — Clean up while keeping tests green
+5. **Repeat** — For each feature/function
+```
+
+## Custom Workflows
+
+Power users can define custom workflow stages in config.yaml:
+
+```yaml
+workflow:
+  - requirements
+  - implementation
+```
+
+Valid stages: `requirements`, `design`, `phases`, `implementation`
+
+The workflow must include at least `implementation`.
+
+## Quick Mode (Legacy v3)
+
+The `foreman quick` command from v3 is still supported:
+
+```bash
+foreman quick "build a CLI that fetches weather data" --brief
+```
+
+This is equivalent to minimal preset with inline task specification.
 
 ## Commands
 
@@ -87,13 +131,21 @@ Full mode uses: **requirements → design → phases → implementation**
 
 | Command | Description |
 |---------|-------------|
-| `foreman init [--preset nightly\|product]` | Initialize a new project |
+| `foreman init [--preset minimal\|light\|full] [--tdd]` | Initialize a new project |
 | `foreman quick "<task>" [--brief]` | Quick mode: skip design/phases |
 | `foreman status` | Show project stage and gate status |
 | `foreman gate [stage]` | Validate and control stage gates |
 | `foreman brief <phase>` | Generate a coding agent brief |
 | `foreman phase <name> <status>` | Update phase status |
 | `foreman watch` | Watch project progress in real-time |
+
+### Preset Aliases (Backward Compat)
+
+```bash
+foreman init --preset nightly   # → minimal
+foreman init --preset product   # → full
+foreman init --quick            # → minimal
+```
 
 ### Gate Operations
 
@@ -114,32 +166,17 @@ foreman gate requirements --reviewer human
 foreman gate requirements --reviewer auto
 ```
 
-### Presets
-
-| Preset | Mode | Auto-Advance | Reviewers |
-|--------|------|--------------|-----------|
-| `nightly` | Quick | 70% | All auto |
-| `product` | Full | Off | Human for requirements/design |
-
-```bash
-# Quick builds for nightly development
-foreman init --preset nightly
-# Equivalent to: foreman init --quick
-
-# Full workflow for products
-foreman init --preset product
-```
-
 ## The Brief (Key Feature)
 
 The `brief` command compiles everything a coding agent needs:
 
-**Quick mode** (`foreman brief impl`):
+**Minimal/Light mode** (`foreman brief impl`):
 ```markdown
 # Implementation Brief
 
-**Project:** weather-cli
-**Mode:** Quick (no design/phases)
+**Project:** my-tool
+**Mode:** Light (requirements gate only)
+**Testing:** TDD enabled
 
 ## Task
 build a CLI that fetches weather data
@@ -147,10 +184,14 @@ build a CLI that fetches weather data
 ## Requirements
 (from .foreman/requirements.md)
 
+## Test-Driven Development
+(TDD workflow instructions if enabled)
+
 ## Implementation Guidelines
 - Keep it simple and functional
 - Write clean, readable code
-- Include basic tests
+- Write tests first (TDD enabled)
+- Add a README with usage instructions
 ```
 
 **Full mode** (`foreman brief 2-backend`):
@@ -169,8 +210,8 @@ Tech Stack: Go, PostgreSQL
 ## Design Context
 (from .foreman/designs/*.md)
 
-## Dependencies
-- ✅ 1-setup: done
+## Test-Driven Development
+(TDD workflow instructions if enabled)
 
 ## Phase Spec
 (from .foreman/phases/2-backend.md)
@@ -178,11 +219,11 @@ Tech Stack: Go, PostgreSQL
 
 ## File Structure
 
-### Quick Mode
+### Minimal/Light Mode
 ```
 .foreman/
-├── config.yaml      # Project config (preset: nightly)
-├── state.yaml       # Current stage, quick_mode: true
+├── config.yaml      # Project config (preset: minimal|light)
+├── state.yaml       # Current stage, workflow
 ├── requirements.md  # Task description
 └── briefs/
     └── impl.md      # Generated brief
@@ -191,19 +232,44 @@ Tech Stack: Go, PostgreSQL
 ### Full Mode
 ```
 .foreman/
-├── config.yaml      # Project config
+├── config.yaml      # Project config (preset: full)
 ├── state.yaml       # Current stage, gates, phases
 ├── requirements.md  # Project requirements
 ├── designs/         # Design documents
 │   ├── architecture.md
 │   └── api.md
 ├── phases/          # Phase specifications
-│   ├── overview.md  # Phase overview
+│   ├── overview.md
 │   ├── 1-setup.md
 │   └── 2-backend.md
 └── briefs/          # Generated briefs
     ├── 1-setup.md
     └── 2-backend.md
+```
+
+## Config Schema (v2.1)
+
+```yaml
+name: my-project
+description: ""
+tech_stack:
+  - Go
+  - PostgreSQL
+created: 2026-02-19T00:00:00Z
+reviewers:
+  default: auto          # auto | human
+  overrides:
+    requirements: human  # Per-stage override
+preset: light            # minimal | light | full
+auto_advance: 70         # 0-100 confidence threshold
+testing:                 # TDD configuration
+  style: tdd             # tdd | coverage | none
+  required: false        # Block without tests?
+  framework: vitest      # Hint for coding agent
+  min_cover: 80          # Minimum coverage (coverage style)
+workflow:                # Custom workflow (optional)
+  - requirements
+  - implementation
 ```
 
 ## Progress Watching
@@ -217,26 +283,15 @@ foreman watch
 foreman watch --interval 10
 ```
 
-Output:
-```
-👀 Watching project progress... (Ctrl+C to stop)
-
-[01:23:45] Project: my-project
-Mode: quick
-Stages: ✅ requirements → 🔵 implementation
-
-🎉 Stage advanced: requirements → implementation
-   📝 Phase 1-setup: planned → in-progress
-```
-
 ## Who is this for?
 
 foreman is built for AI assistants (like those running on [OpenClaw](https://github.com/openclaw/openclaw)) that manage software projects. It bridges the gap between **planning** and **execution** by:
 
-1. Structuring project knowledge (requirements, design, constraints)
-2. Breaking work into **phases** — self-contained implementation units
-3. Generating **briefs** — compiled documents with all the context a coding agent needs
-4. **Quick mode** — skipping ceremony when speed matters
+1. **Structuring project knowledge** — requirements, design, constraints
+2. **Breaking work into phases** — self-contained implementation units
+3. **Generating briefs** — compiled documents with all the context a coding agent needs
+4. **Supporting different workflows** — minimal for scripts, full for products
+5. **Enforcing TDD** — optional test-driven development mode
 
 ## License
 

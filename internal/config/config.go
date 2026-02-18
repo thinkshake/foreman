@@ -9,6 +9,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Preset constants
+const (
+	PresetMinimal = "minimal" // Script, hotfix: 0 gates, 1 phase
+	PresetLight   = "light"   // Small tool: 1 gate, 1-2 phases, no design
+	PresetFull    = "full"    // Product: 3 gates (requirements, design, phases)
+	PresetNightly = "nightly" // Alias for minimal (backward compat)
+	PresetProduct = "product" // Alias for full (backward compat)
+)
+
+// TestingStyle constants
+const (
+	TestingStyleTDD      = "tdd"      // Test-driven development
+	TestingStyleCoverage = "coverage" // Coverage-focused
+	TestingStyleNone     = "none"     // No testing requirements
+)
+
+// Testing defines testing configuration for the project.
+type Testing struct {
+	Style     string `yaml:"style,omitempty"`     // "tdd", "coverage", "none"
+	Required  bool   `yaml:"required,omitempty"`  // Block phase completion without tests?
+	Framework string `yaml:"framework,omitempty"` // Hint for coding agent (e.g., "vitest", "go test")
+	MinCover  int    `yaml:"min_cover,omitempty"` // Minimum coverage percentage (for coverage style)
+}
+
 // Config represents the config.yaml schema.
 type Config struct {
 	Name        string    `yaml:"name"`
@@ -16,8 +40,10 @@ type Config struct {
 	TechStack   []string  `yaml:"tech_stack"`
 	Created     time.Time `yaml:"created"`
 	Reviewers   Reviewers `yaml:"reviewers"`
-	Preset      string    `yaml:"preset,omitempty"`      // v3: "nightly", "product", or empty
-	AutoAdvance int       `yaml:"auto_advance,omitempty"` // v3: confidence threshold for auto-advance (0-100)
+	Preset      string    `yaml:"preset,omitempty"`       // minimal, light, full (or aliases: nightly, product)
+	AutoAdvance int       `yaml:"auto_advance,omitempty"` // confidence threshold for auto-advance (0-100)
+	Testing     *Testing  `yaml:"testing,omitempty"`      // v2.1: testing configuration
+	Workflow    []string  `yaml:"workflow,omitempty"`     // v2.1: custom workflow stages (power users)
 }
 
 // Reviewers defines gate reviewer configuration.
@@ -99,33 +125,152 @@ func NewDefault(name string) *Config {
 		},
 		Preset:      "",
 		AutoAdvance: 0,
+		Testing:     nil,
+		Workflow:    nil,
 	}
 }
 
 // NewWithPreset creates a config with a specific preset.
 func NewWithPreset(name, preset string) *Config {
 	cfg := NewDefault(name)
-	cfg.Preset = preset
-	
-	switch preset {
-	case "nightly":
-		// Nightly builds: fast, auto-advance everything
+	cfg.Preset = NormalizePreset(preset)
+
+	switch cfg.Preset {
+	case PresetMinimal:
+		// Minimal: scripts/hotfixes - no gates, straight to implementation
+		cfg.AutoAdvance = 100 // Auto-advance everything
+		cfg.Reviewers.Default = "auto"
+		cfg.Workflow = []string{"requirements", "implementation"}
+	case PresetLight:
+		// Light: small tools - requirements gate only, no design phase
 		cfg.AutoAdvance = 70 // Auto-advance at 70% confidence
 		cfg.Reviewers.Default = "auto"
-	case "product":
-		// Product builds: careful, human review for key stages
+		cfg.Workflow = []string{"requirements", "implementation"}
+	case PresetFull:
+		// Full: products - all gates, human review for key stages
 		cfg.AutoAdvance = 0 // No auto-advance
 		cfg.Reviewers.Default = "auto"
 		cfg.Reviewers.Overrides = map[string]string{
 			"requirements": "human",
 			"design":       "human",
 		}
+		cfg.Workflow = []string{"requirements", "design", "phases", "implementation"}
 	}
-	
+
 	return cfg
 }
 
-// IsQuickPreset returns true if the preset implies quick mode.
+// NewWithTesting creates a config with testing enabled.
+func NewWithTesting(name, preset string, tdd bool) *Config {
+	cfg := NewWithPreset(name, preset)
+	if tdd {
+		cfg.Testing = &Testing{
+			Style:    TestingStyleTDD,
+			Required: false, // Don't block by default
+		}
+	}
+	return cfg
+}
+
+// NormalizePreset converts preset aliases to canonical names.
+func NormalizePreset(preset string) string {
+	switch preset {
+	case PresetNightly:
+		return PresetMinimal // nightly → minimal
+	case PresetProduct:
+		return PresetFull // product → full
+	case PresetMinimal, PresetLight, PresetFull:
+		return preset
+	default:
+		return preset // allow custom or empty
+	}
+}
+
+// IsQuickPreset returns true if the preset implies quick mode (no design/phases).
 func (c *Config) IsQuickPreset() bool {
-	return c.Preset == "nightly"
+	p := NormalizePreset(c.Preset)
+	return p == PresetMinimal || p == PresetLight
+}
+
+// IsMinimalPreset returns true if using minimal preset (no gates at all).
+func (c *Config) IsMinimalPreset() bool {
+	return NormalizePreset(c.Preset) == PresetMinimal
+}
+
+// GetWorkflow returns the active workflow stages.
+func (c *Config) GetWorkflow() []string {
+	// Custom workflow takes priority
+	if len(c.Workflow) > 0 {
+		return c.Workflow
+	}
+
+	// Default based on preset
+	switch NormalizePreset(c.Preset) {
+	case PresetMinimal, PresetLight:
+		return []string{"requirements", "implementation"}
+	case PresetFull:
+		return []string{"requirements", "design", "phases", "implementation"}
+	default:
+		// Default to full workflow
+		return []string{"requirements", "design", "phases", "implementation"}
+	}
+}
+
+// HasDesignPhase returns true if the workflow includes a design phase.
+func (c *Config) HasDesignPhase() bool {
+	for _, stage := range c.GetWorkflow() {
+		if stage == "design" {
+			return true
+		}
+	}
+	return false
+}
+
+// HasPhasesPhase returns true if the workflow includes a phases phase.
+func (c *Config) HasPhasesPhase() bool {
+	for _, stage := range c.GetWorkflow() {
+		if stage == "phases" {
+			return true
+		}
+	}
+	return false
+}
+
+// IsTDDEnabled returns true if TDD style testing is enabled.
+func (c *Config) IsTDDEnabled() bool {
+	return c.Testing != nil && c.Testing.Style == TestingStyleTDD
+}
+
+// ValidateWorkflow checks if a custom workflow is valid.
+func ValidateWorkflow(workflow []string) error {
+	if len(workflow) == 0 {
+		return fmt.Errorf("workflow cannot be empty")
+	}
+
+	// Must have at least implementation
+	hasImpl := false
+	for _, stage := range workflow {
+		if stage == "implementation" {
+			hasImpl = true
+			break
+		}
+	}
+	if !hasImpl {
+		return fmt.Errorf("workflow must include 'implementation' stage")
+	}
+
+	// Validate all stages
+	validStages := map[string]bool{
+		"requirements":   true,
+		"design":         true,
+		"phases":         true,
+		"implementation": true,
+	}
+	for _, stage := range workflow {
+		if !validStages[stage] {
+			return fmt.Errorf("invalid workflow stage: %s", stage)
+		}
+	}
+
+	return nil
 }

@@ -102,6 +102,23 @@ func Generate(root, phaseName string) (string, error) {
 	b.WriteString(phasePlan)
 	b.WriteString("\n\n")
 
+	// TDD Instructions (if enabled)
+	if cfg.IsTDDEnabled() {
+		b.WriteString("## Test-Driven Development\n\n")
+		b.WriteString("⚠️ **TDD is enabled for this project.** Follow this workflow:\n\n")
+		b.WriteString("1. **Write tests first** — Define expected behavior before implementation\n")
+		b.WriteString("2. **Run tests (they should fail)** — Confirm the test is valid\n")
+		b.WriteString("3. **Implement the feature** — Write minimal code to pass the test\n")
+		b.WriteString("4. **Refactor** — Clean up while keeping tests green\n")
+		b.WriteString("5. **Repeat** — For each feature/function\n\n")
+		if cfg.Testing.Framework != "" {
+			b.WriteString(fmt.Sprintf("**Testing framework:** %s\n\n", cfg.Testing.Framework))
+		}
+		if cfg.Testing.Required {
+			b.WriteString("**⚠️ Tests are required** — Phase cannot be marked complete without passing tests.\n\n")
+		}
+	}
+
 	// Implementation Guidelines
 	b.WriteString("## Implementation Guidelines\n\n")
 	b.WriteString(fmt.Sprintf("- This phase is currently: **%s**\n", targetPhase.Status))
@@ -111,6 +128,9 @@ func Generate(root, phaseName string) (string, error) {
 		b.WriteString("- Implementation is ongoing\n")
 	} else if targetPhase.Status == "done" {
 		b.WriteString("- This phase is marked as completed\n")
+	}
+	if cfg.IsTDDEnabled() {
+		b.WriteString("- **Write tests first** (TDD enabled)\n")
 	}
 
 	// Show context about other phases for awareness
@@ -199,7 +219,27 @@ func GenerateQuickBrief(root, task string) (string, error) {
 	b.WriteString("# Implementation Brief\n\n")
 	b.WriteString(fmt.Sprintf("**Project:** %s\n", cfg.Name))
 	b.WriteString(fmt.Sprintf("**Generated:** %s\n", getCurrentTimestamp()))
-	b.WriteString(fmt.Sprintf("**Mode:** Quick (no design/phases)\n\n"))
+
+	// Mode indicator
+	presetName := config.NormalizePreset(cfg.Preset)
+	switch presetName {
+	case config.PresetMinimal:
+		b.WriteString("**Mode:** Minimal (no gates)\n")
+	case config.PresetLight:
+		b.WriteString("**Mode:** Light (requirements gate only)\n")
+	default:
+		b.WriteString("**Mode:** Quick (no design/phases)\n")
+	}
+
+	// TDD indicator
+	if cfg.IsTDDEnabled() {
+		b.WriteString("**Testing:** TDD enabled")
+		if cfg.Testing.Framework != "" {
+			b.WriteString(fmt.Sprintf(" (%s)", cfg.Testing.Framework))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
 
 	// Task
 	b.WriteString("## Task\n\n")
@@ -220,12 +260,40 @@ func GenerateQuickBrief(root, task string) (string, error) {
 		b.WriteString("\n")
 	}
 
+	// TDD Instructions (if enabled)
+	if cfg.IsTDDEnabled() {
+		b.WriteString("## Test-Driven Development\n\n")
+		b.WriteString("⚠️ **TDD is enabled for this project.** Follow this workflow:\n\n")
+		b.WriteString("1. **Write tests first** — Define expected behavior before implementation\n")
+		b.WriteString("2. **Run tests (they should fail)** — Confirm the test is valid\n")
+		b.WriteString("3. **Implement the feature** — Write minimal code to pass the test\n")
+		b.WriteString("4. **Refactor** — Clean up while keeping tests green\n")
+		b.WriteString("5. **Repeat** — For each feature/function\n\n")
+		if cfg.Testing.Framework != "" {
+			b.WriteString(fmt.Sprintf("**Testing framework:** %s\n\n", cfg.Testing.Framework))
+		}
+		if cfg.Testing.Required {
+			b.WriteString("**⚠️ Tests are required** — Phase cannot be marked complete without passing tests.\n\n")
+		}
+	}
+
 	// Implementation Guidelines
 	b.WriteString("## Implementation Guidelines\n\n")
-	b.WriteString("This is a **quick build** — focus on getting a working solution.\n\n")
+	switch presetName {
+	case config.PresetMinimal:
+		b.WriteString("This is a **minimal build** — move fast, ship it.\n\n")
+	case config.PresetLight:
+		b.WriteString("This is a **light build** — balance speed with quality.\n\n")
+	default:
+		b.WriteString("This is a **quick build** — focus on getting a working solution.\n\n")
+	}
 	b.WriteString("- Keep it simple and functional\n")
 	b.WriteString("- Write clean, readable code\n")
-	b.WriteString("- Include basic tests for core functionality\n")
+	if cfg.IsTDDEnabled() {
+		b.WriteString("- **Write tests first** (TDD enabled)\n")
+	} else {
+		b.WriteString("- Include basic tests for core functionality\n")
+	}
 	b.WriteString("- Add a README with usage instructions\n")
 	b.WriteString("\n")
 

@@ -59,6 +59,182 @@ func TestReviewersMethods(t *testing.T) {
 	}
 }
 
+func TestNewWithPreset(t *testing.T) {
+	tests := []struct {
+		name         string
+		preset       string
+		wantPreset   string
+		wantWorkflow []string
+		wantAdvance  int
+	}{
+		{
+			name:         "minimal preset",
+			preset:       PresetMinimal,
+			wantPreset:   PresetMinimal,
+			wantWorkflow: []string{"requirements", "implementation"},
+			wantAdvance:  100,
+		},
+		{
+			name:         "light preset",
+			preset:       PresetLight,
+			wantPreset:   PresetLight,
+			wantWorkflow: []string{"requirements", "implementation"},
+			wantAdvance:  70,
+		},
+		{
+			name:         "full preset",
+			preset:       PresetFull,
+			wantPreset:   PresetFull,
+			wantWorkflow: []string{"requirements", "design", "phases", "implementation"},
+			wantAdvance:  0,
+		},
+		{
+			name:         "nightly alias",
+			preset:       PresetNightly,
+			wantPreset:   PresetMinimal,
+			wantWorkflow: []string{"requirements", "implementation"},
+			wantAdvance:  100,
+		},
+		{
+			name:         "product alias",
+			preset:       PresetProduct,
+			wantPreset:   PresetFull,
+			wantWorkflow: []string{"requirements", "design", "phases", "implementation"},
+			wantAdvance:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewWithPreset("test", tt.preset)
+
+			if cfg.Preset != tt.wantPreset {
+				t.Errorf("preset = %q, want %q", cfg.Preset, tt.wantPreset)
+			}
+
+			if cfg.AutoAdvance != tt.wantAdvance {
+				t.Errorf("auto_advance = %d, want %d", cfg.AutoAdvance, tt.wantAdvance)
+			}
+
+			if len(cfg.Workflow) != len(tt.wantWorkflow) {
+				t.Errorf("workflow length = %d, want %d", len(cfg.Workflow), len(tt.wantWorkflow))
+			}
+
+			for i, stage := range cfg.Workflow {
+				if stage != tt.wantWorkflow[i] {
+					t.Errorf("workflow[%d] = %q, want %q", i, stage, tt.wantWorkflow[i])
+				}
+			}
+		})
+	}
+}
+
+func TestNewWithTesting(t *testing.T) {
+	cfg := NewWithTesting("test", PresetLight, true)
+
+	if cfg.Testing == nil {
+		t.Fatal("expected testing config to be set")
+	}
+
+	if cfg.Testing.Style != TestingStyleTDD {
+		t.Errorf("testing style = %q, want %q", cfg.Testing.Style, TestingStyleTDD)
+	}
+
+	if cfg.Testing.Required {
+		t.Error("expected required = false by default")
+	}
+}
+
+func TestIsQuickPreset(t *testing.T) {
+	tests := []struct {
+		preset    string
+		wantQuick bool
+	}{
+		{PresetMinimal, true},
+		{PresetLight, true},
+		{PresetFull, false},
+		{PresetNightly, true},
+		{PresetProduct, false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.preset, func(t *testing.T) {
+			cfg := &Config{Preset: tt.preset}
+			if got := cfg.IsQuickPreset(); got != tt.wantQuick {
+				t.Errorf("IsQuickPreset() = %v, want %v", got, tt.wantQuick)
+			}
+		})
+	}
+}
+
+func TestIsTDDEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		testing *Testing
+		want    bool
+	}{
+		{"nil testing", nil, false},
+		{"tdd style", &Testing{Style: TestingStyleTDD}, true},
+		{"coverage style", &Testing{Style: TestingStyleCoverage}, false},
+		{"none style", &Testing{Style: TestingStyleNone}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Testing: tt.testing}
+			if got := cfg.IsTDDEnabled(); got != tt.want {
+				t.Errorf("IsTDDEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateWorkflow(t *testing.T) {
+	tests := []struct {
+		name     string
+		workflow []string
+		wantErr  bool
+	}{
+		{"valid full", []string{"requirements", "design", "phases", "implementation"}, false},
+		{"valid minimal", []string{"requirements", "implementation"}, false},
+		{"valid impl only", []string{"implementation"}, false},
+		{"empty workflow", []string{}, true},
+		{"missing impl", []string{"requirements", "design"}, true},
+		{"invalid stage", []string{"requirements", "testing", "implementation"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateWorkflow(tt.workflow)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateWorkflow() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestGetWorkflow(t *testing.T) {
+	// Config with custom workflow
+	cfg := &Config{
+		Workflow: []string{"requirements", "implementation"},
+	}
+	got := cfg.GetWorkflow()
+	if len(got) != 2 || got[0] != "requirements" || got[1] != "implementation" {
+		t.Errorf("GetWorkflow() with custom = %v", got)
+	}
+
+	// Config with preset, no custom workflow
+	cfg2 := &Config{
+		Preset:   PresetFull,
+		Workflow: nil,
+	}
+	got2 := cfg2.GetWorkflow()
+	if len(got2) != 4 {
+		t.Errorf("GetWorkflow() with full preset = %v, want 4 stages", got2)
+	}
+}
+
 func TestLoadSave(t *testing.T) {
 	// Create temporary directory
 	tempDir, err := os.MkdirTemp("", "foreman-test")
